@@ -1,2 +1,9 @@
-*.md
-!README.md
+venv/
+__pycache__/
+*.pyc
+data/*
+!data/.gitkeep
+figures/*.png
+.ipynb_checkpoints/
+*.egg-info/
+.DS_Store
