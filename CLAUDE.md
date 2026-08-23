@@ -1,117 +1,65 @@
-# Exam 3 — Own ML Project: Plant Disease / Pest Damage Detection (PlantVillage)
+# CLAUDE.md — Engine Condition Predictive Maintenance Project
 
-## Context
-University "Exam 3" deliverable. Two theoretical questions (independent of
-the project, already covered — see `ML_Fundamentals_Reference.md`) plus a
-hands-on ML project.
+**Exam 3 — Own ML Project.** This file is the handoff context for continuing this project in Claude Code. Read this fully before making changes — several design decisions here were made after explicitly rejecting simpler alternatives, and re-litigating them wastes time and risks contradicting the report already being drafted around these results.
 
-**Deliverables required:** 5–8 page report, reproducible code/notebook,
-short conclusion: "Why this data and setup were the right choice (or not)".
+---
 
-## Project Decision (topic history — 5th topic, 3rd dataset for "pest detection")
+## Project summary
 
-1. CWRU bearing fault classification — scoped, never built.
-2. Exoplanet detection (Kepler light curves) — fully built, working, separate
-   folder (`exoplanet_project/`).
-3. Pest detection, **IP102** dataset — fully built, working, separate folder
-   (`pest_project/`). Abandoned: user correctly identified IP102 images are
-   macro/studio photography, unrealistic for any real drone altitude (an
-   individual insect is sub-pixel from 10-50m up).
-4. Pest detection, **Agriculture-Vision** dataset — fully built, working,
-   separate folder (`agvision_project/`). Fixed the realism problem (genuine
-   aircraft-captured aerial imagery) but user correctly flagged two new
-   problems: (a) 20GB download, unreasonable for a course exam, (b) the
-   dataset is about generic field anomalies (weeds, drydown, standing water,
-   nutrient deficiency) — NOT pests, a real topic drift the user caught.
-5. **Pest/disease detection, PlantVillage dataset — current, actively
-   built.** Resolves both prior complaints: ~2GB (not 20GB), and it's
-   genuinely about crop health/disease/pest-damage symptoms (not generic
-   field patterns). Trade-off: images are close-range leaf photos under
-   controlled conditions, not aerial. Framing used: this is the recognition
-   module for CLOSE-RANGE drone crop scouting (orchard/vineyard row-scanning
-   at a few meters from canopy), which is a real, existing precision-ag
-   practice — genuinely different from, and more realistic than, the
-   individual-insect-at-survey-altitude framing that sank IP102.
+Binary classification: predict `Engine Condition` (0/1) from 6 automotive engine sensor readings (RPM, lub oil pressure, fuel pressure, coolant pressure, lub oil temp, coolant temp). Dataset: `data/engine_data.csv`, 19,535 rows, no missing values, no duplicates, 63/37 class balance.
 
-All five explorations share the same underlying technical shape (raw input
-→ CNN, cross-entropy-family loss, baseline comparison, saliency-based
-interpretation), so `ML_Fundamentals_Reference.md` applies unchanged.
+**Full design rationale lives in `PROJECT_PLAN.md`** — read that first for the "why" behind every choice below. This file is state/status, not justification.
 
-**Constraint carried over: "pure ML model"** = no hand-crafted domain
-features.
+## Dataset history (important context, don't re-suggest these)
 
-## Honest framing points already built into the notebook (don't lose these)
+This project went through two dataset iterations before settling here:
+1. **First dataset** (500k-row synthetic factory sensor sim, `Remaining_Useful_Life_days` regression target) — rejected/superseded. Found `Operational_Hours` correlated at r=-0.985 with RUL, meaning one feature nearly solved the whole task — not a compelling demonstration of neural net value. Also found `Failure_Within_7_Days` was a leaky derivative of RUL (RUL≤7 → failure=True in 99.9% of rows).
+2. **Current dataset** (`engine_data.csv`, this file) — chosen because weak individual feature correlations (all |r|<0.27) leave genuine room for a nonlinear model to add value over a linear baseline, and the smaller size (19.5k rows) makes regularization/augmentation load-bearing decisions rather than formalities.
 
-- PlantVillage covers disease/pest damage broadly (fungal, bacterial, viral,
-  AND insect-caused symptoms) — stated explicitly in Section 1 that this is
-  "crop health symptom detection," of which insect pest damage is one cause
-  among several, not a pure "insect pest" dataset.
-- Controlled-condition images (uniform background, consistent framing) are
-  still a real domain gap vs. actual drone footage (variable lighting,
-  motion blur, cluttered backgrounds) — smaller gap than IP102's (leaf-scale
-  symptoms are visible at realistic close range, unlike individual insects),
-  but stated plainly rather than glossed over.
-- Section 9's conclusion prompts explicitly ask the user to reflect honestly
-  across all three dataset attempts (IP102 → Agriculture-Vision →
-  PlantVillage) — useful, genuine material for the report's conclusion.
+**Do not suggest going back to the factory dataset or switching again** unless the user explicitly raises it — this was already discussed at length and settled.
 
-## Technical Plan — IMPLEMENTED
+## Key findings already established (cite these, don't re-derive)
 
-**Task:** multi-class classification (default 15 classes from PlantVillage's
-38, configurable) — healthy vs. which disease/damage pattern.
+- **Label semantics unconfirmed**: no documentation found (searched) for whether `Engine Condition=0` means healthy or faulty. Report treats this as an explicit limitation and shows both classes' metrics symmetrically rather than assuming.
+- **No outlier removal performed**: IQR flags on `lub oil temp` (13.4%) etc. reflect naturally tight distributions, not data errors — verified no physically impossible values (no negative pressures, etc.) exist in the data.
+- **Performance ceiling confirmed at AUC ≈ 0.70**, verified across 5 different model families:
+  - Logistic Regression (all features): AUC 0.696
+  - Logistic Regression (Engine rpm only): AUC 0.669
+  - Random Forest (300 trees): AUC 0.685
+  - Gradient Boosting (300 trees): AUC 0.700
+  - **MLP (this project's main model, no augmentation): AUC 0.701** ← best, but only marginally
+  - Gradient Boosting + 6 engineered interaction/ratio features: AUC 0.700 (no improvement — ceiling holds even with feature engineering)
+  - **Conclusion for the report: this is a data information ceiling, not a modeling limitation.** State this plainly; don't chase further architecture tuning trying to "beat" ~0.70 AUC — the diagnostic work above already demonstrates why that's not productive.
+- **Augmentation ablation result**: Gaussian jitter (σ=0.05, train-only) *slightly hurt* performance (AUC 0.699 vs 0.701 without). Report this honestly as a negative result — likely because dropout+batchnorm+weight_decay already sufficiently regularize a 993-parameter model on 13.6k training rows.
+- **Permutation importance**: `Engine rpm` dominates (mean AUC drop 0.138 when shuffled) — 4x the next feature (`Fuel pressure`, 0.033). Consistent with the correlation audit.
+- **Failure case**: MLP accuracy drops sharply as Engine rpm increases — 78.9% in the lowest RPM quartile down to 54.8% in the highest.
+- **MLP vs Logistic Regression trade-off** (from confusion matrices, test set n=2931): MLP has notably better class-0 recall (72.9% vs 60.5%) but worse class-1 recall (58.5% vs 67.8%). Whether this trade-off is "good" depends on the unresolved label-semantics question above.
 
-**Dataset:** PlantVillage (github.com/spMohanty/PlantVillage-Dataset) —
-~54,300 images, 38 classes (14 crop species x disease/healthy combos),
-ImageFolder-style distribution (`data/<ClassName>/*.jpg`) on every Kaggle
-mirror — same format as IP102's Format A, which is why most code from
-`pest_project/` ported over with minimal changes. **Status: not yet in
-`data/`** in this environment — user downloads manually (Kaggle).
+## Implementation status
 
-**Pipeline (all implemented in `src/`, mostly reused verbatim or
-lightly-renamed from `pest_project/` since the classification-once-you-have-
-ImageFolder-data part didn't need to change):**
-1. `preprocessing.py` — `index_dataset()` (Format A: ImageFolder-style,
-   reused as-is; Format B annotation-file fallback kept for robustness but
-   unused for PlantVillage), `select_top_classes()` (reused as-is).
-2. `dataset.py` — renamed `PestImageDataset` → `LeafImageDataset`; kept
-   ±15° rotation (not the 360° used in the Agriculture-Vision attempt,
-   since leaves have a natural orientation unlike aerial tiles) — this is
-   the one meaningful augmentation difference from the other two image
-   projects, worth remembering if asked to explain augmentation choices.
-3. `models.py`, `train.py`, `evaluate.py`, `interpret.py` — copied verbatim
-   from `pest_project/`; fully domain-agnostic.
+All core modules built and tested working in `src/`:
 
-**Main deliverable:** `notebooks/plant_disease_detection.ipynb` — 9 sections
-mapped 1:1 to report sections. Already executed once against synthetic data
-(procedurally generated leaf-green images with colored lesion-like patches
-per class, 5-class reduced-threshold test) — zero errors; Grad-CAM correctly
-centered on the lesion patches rather than healthy leaf tissue. Notebook was
-then rebuilt with the real-world defaults (`N_CLASSES=15`,
-`MIN_PER_CLASS=200`) for actual handoff — this final version has NOT been
-executed (thresholds don't fit the tiny synthetic test data), but the
-identical code path was validated at smaller scale, so it should work
-unchanged once real data (which comfortably clears both thresholds) is
-in place.
+| File | Status | Purpose |
+|---|---|---|
+| `src/preprocess.py` | ✅ Done, tested | Load, stratified 70/15/15 split, StandardScaler (train-fit only), `pos_weight` computation, `add_gaussian_jitter()` augmentation fn |
+| `src/model.py` | ✅ Done, tested | `EngineConditionMLP`: 6→32→16→8→1, BatchNorm+ReLU+Dropout(0.3/0.2), raw logit output. 993 params. |
+| `src/baselines.py` | ✅ Done, tested | Full-feature and single-feature (`Engine rpm` only) logistic regression, `class_weight='balanced'` |
+| `src/train.py` | ✅ Done, tested | Mini-batch training loop, Adam (lr=1e-3, weight_decay=1e-4), `BCEWithLogitsLoss(pos_weight=...)`, early stopping (patience=15) on val loss, `use_augmentation` toggle |
+| `src/evaluate.py` | ✅ Done, tested, run end-to-end | Full comparison (both baselines + both MLP variants), permutation importance, residual-by-RPM-band analysis, all plots, saves `outputs/metrics.json` |
 
-**Also present:** `smoke_test.py` (generates synthetic leaf-lesion images,
-runs the entire pipeline standalone — note it uses N_CLASSES=5,
-min_per_class=10 internally, appropriate for its own small synthetic set),
-`build_notebook.py` (regenerates the notebook programmatically — edit this
-and rerun rather than hand-editing the `.ipynb`).
+**Reproduce all results:** `cd src && python3 evaluate.py` — takes ~1-2 min, regenerates everything in `outputs/`.
 
-## Immediate Next Step
+Figures already generated in `outputs/figures/`: `confusion_matrices.png`, `roc_curves.png`, `training_curves.png`, `permutation_importance.png`. Metrics in `outputs/metrics.json`.
 
-1. User downloads PlantVillage from a Kaggle mirror (~2GB) and places the
-   class folders directly under `data/`.
-2. Run `notebooks/plant_disease_detection.ipynb` top to bottom. Adjust
-   `N_CLASSES` / `MIN_PER_CLASS` in Section 2 if the default 15-class scope
-   needs tuning, or restrict to a single crop's classes for a more focused
-   comparison (noted as an option in the notebook markdown).
-3. Fill in Section 9 (Conclusion) using real metrics/Grad-CAM results,
-   including the honest three-dataset retrospective already prompted there.
-4. Adapt notebook markdown + figures into the actual 5–8 page report.
+## Remaining work (not yet started)
 
-## Reference Material
-`ML_Fundamentals_Reference.md` — full formula/definition reference from the
-course's 145-slide deck, mapped to report sections. Applies unchanged across
-all five project topics/datasets explored during this exam.
+1. **`notebooks/main_analysis.ipynb`** — the primary reproducible deliverable. Should walk through the full pipeline end-to-end (audit → preprocess → baselines → MLP training → augmentation ablation → evaluation → interpretation) as a narrative notebook, not just import the `src/` modules silently — the exam wants to see the reasoning, not just results. Reuse the `src/` modules as the underlying implementation (`sys.path.insert(0, '../src')` then import) rather than duplicating code, but write markdown cells that explain each step referencing `PROJECT_PLAN.md`'s justifications.
+2. **`report/exam3_report.docx`** — 5-8 page report. Structure mapping is in `PROJECT_PLAN.md` §8. Use the `docx` skill (`/mnt/skills/public/docx/SKILL.md`) when generating this. Must include: problem relevance, data choice + audit table, model setup justification (loss/activation/optimizer reasoning from `PROJECT_PLAN.md` §5.3-§5.8), baseline comparison, evaluation (all 4+ models table, confusion matrices, ROC), interpretation (permutation importance, RPM-band failure case, augmentation ablation as a negative result), and the conclusion synthesizing the AUC-ceiling finding honestly.
+3. **Theoretical Q1 & Q2 answers** — separate from the project report (see `exam_3_own_project.pdf` for exact wording). Reference material for these is `ML_Fundamentals_Reference.md` (already in project context, not yet copied into this project folder — copy it in if needed). `PROJECT_PLAN.md` §8's table maps which sections answer which theoretical sub-question, with this project's own architecture choices (MLP not CNN/RNN, sigmoid+BCE not linear+MSE) as concrete worked examples to fold in.
+
+## Conventions to maintain
+
+- Random seed `42` everywhere (splits, model init, DataLoader shuffling) — reproducibility matters for the "reproducible code/notebook" deliverable requirement.
+- Never fit `StandardScaler` or anything else on val/test data — train-only fitting is already correctly implemented in `preprocess.py`, don't regress this.
+- Report both classes' precision/recall/F1 individually, never just macro-averaged accuracy — the imbalance and label-semantics ambiguity make this important.
+- When discussing results in the report/notebook, don't oversell the AUC ceiling finding as a project failure — it's framed as a rigor demonstration throughout `PROJECT_PLAN.md` and should stay that way for consistency.

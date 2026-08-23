@@ -1,102 +1,98 @@
-"""
-train.py
-Training loop shared by baseline and CNN.
-
-Choices made here (see ML_Fundamentals_Reference.md for the underlying formulas):
-  - Loss: CrossEntropyLoss (categorical cross-entropy over n_classes),
-    optionally class-weighted for IP102's long-tailed distribution -- S1.2.
-  - Optimizer: Adam (mini-batch GD + momentum + adaptive learning rates) --
-    an extension of the mini-batch GD covered in S2.3, not covered by name
-    in the course slides, worth flagging as such in the report.
-  - Regularization: dropout + batch norm (inside the CNN) + early stopping
-    on validation loss -- S8.
-"""
-
-from __future__ import annotations
+"""Training loop for EngineConditionMLP. See PROJECT_PLAN.md §5.4-5.8."""
 import copy
+
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
+
+from model import build_model
+
+SEED = 42
 
 
-def run_epoch(model, loader, criterion, optimizer, device, train: bool):
-    model.train() if train else model.eval()
-    total_loss = 0.0
-    n_correct = 0
-    n_samples = 0
-
-    context = torch.enable_grad() if train else torch.no_grad()
-    with context:
-        for X_batch, y_batch in loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-
-            if train:
-                optimizer.zero_grad()
-
-            logits = model(X_batch)
-            loss = criterion(logits, y_batch)
-
-            if train:
-                loss.backward()
-                optimizer.step()
-
-            total_loss += loss.item() * X_batch.size(0)
-            n_correct += (logits.argmax(dim=1) == y_batch).sum().item()
-            n_samples += X_batch.size(0)
-
-    return total_loss / n_samples, n_correct / n_samples
+def _make_loader(X, y, batch_size, shuffle, seed=SEED):
+    ds = TensorDataset(
+        torch.tensor(X, dtype=torch.float32),
+        torch.tensor(y, dtype=torch.float32),
+    )
+    g = torch.Generator().manual_seed(seed)
+    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, generator=g)
 
 
 def train_model(
-    model: nn.Module,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    device: torch.device,
-    epochs: int = 30,
-    lr: float = 1e-3,
-    class_weights: torch.Tensor | None = None,
-    patience: int = 6,
-    verbose: bool = True,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    pos_weight,
+    use_augmentation=False,
+    jitter_sigma=0.05,
+    batch_size=32,
+    lr=1e-3,
+    weight_decay=1e-4,
+    max_epochs=200,
+    patience=15,
+    seed=SEED,
 ):
-    """
-    Trains `model` with Adam + CrossEntropyLoss, early stopping on validation
-    loss. Returns the best model (lowest val loss) and full training history
-    (loss + accuracy per epoch) for the report's learning-curve figure.
-    """
-    model = model.to(device)
-    criterion = nn.CrossEntropyLoss(
-        weight=class_weights.to(device) if class_weights is not None else None
-    )
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    """Mini-batch training with Adam, BCEWithLogitsLoss(pos_weight), early stopping on val loss."""
+    torch.manual_seed(seed)
+    model = build_model(seed=seed)
 
-    history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
+    train_loader = _make_loader(X_train, y_train, batch_size, shuffle=True, seed=seed)
+    X_val_t = torch.tensor(X_val, dtype=torch.float32)
+    y_val_t = torch.tensor(y_val, dtype=torch.float32)
+
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
     best_val_loss = float("inf")
-    best_state = copy.deepcopy(model.state_dict())
-    epochs_no_improve = 0
+    best_state = None
+    epochs_without_improvement = 0
+    history = {"train_loss": [], "val_loss": []}
 
-    for epoch in range(1, epochs + 1):
-        train_loss, train_acc = run_epoch(model, train_loader, criterion, optimizer, device, train=True)
-        val_loss, val_acc = run_epoch(model, val_loader, criterion, optimizer, device, train=False)
+    for epoch in range(max_epochs):
+        model.train()
+        epoch_loss = 0.0
+        n_batches = 0
+        for xb, yb in train_loader:
+            if use_augmentation:
+                xb = xb + torch.randn_like(xb) * jitter_sigma
+            optimizer.zero_grad()
+            logits = model(xb)
+            loss = criterion(logits, yb)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            n_batches += 1
+        train_loss = epoch_loss / n_batches
+
+        model.eval()
+        with torch.no_grad():
+            val_logits = model(X_val_t)
+            val_loss = criterion(val_logits, y_val_t).item()
 
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
-        history["train_acc"].append(train_acc)
-        history["val_acc"].append(val_acc)
-
-        if verbose:
-            print(f"Epoch {epoch:3d} | train_loss={train_loss:.4f} acc={train_acc:.3f} | "
-                  f"val_loss={val_loss:.4f} acc={val_acc:.3f}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_state = copy.deepcopy(model.state_dict())
-            epochs_no_improve = 0
+            epochs_without_improvement = 0
         else:
-            epochs_no_improve += 1
-            if epochs_no_improve >= patience:
-                if verbose:
-                    print(f"Early stopping at epoch {epoch} (no improvement for {patience} epochs).")
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
                 break
 
     model.load_state_dict(best_state)
     return model, history
+
+
+if __name__ == "__main__":
+    from preprocess import prepare_data
+
+    data = prepare_data()
+    model, history = train_model(
+        data["X_train"], data["y_train"], data["X_val"], data["y_val"], data["pos_weight"]
+    )
+    print(f"Trained for {len(history['train_loss'])} epochs")
+    print(f"Final val loss: {history['val_loss'][-1]:.4f}")
