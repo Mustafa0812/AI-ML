@@ -73,9 +73,8 @@ def rul_band_error(y_true, y_pred, bands=RUL_BANDS):
 def permutation_importance_lstm(model, X_test, y_test, baseline_rmse, n_repeats=10, seed=SEED):
     """Shuffle each sensor channel's full time series across the batch
     dimension (preserving within-window temporal structure), measure the
-    RMSE *increase* (bigger = more important — the sign is flipped relative
-    to an AUC-drop convention, since here a higher loss after shuffling
-    means the model relied on that channel)."""
+    RMSE *increase* (a larger increase means the model relied more heavily
+    on that channel)."""
     rng = np.random.default_rng(seed)
     n = X_test.shape[0]
     importances = {}

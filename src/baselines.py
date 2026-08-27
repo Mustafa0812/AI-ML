@@ -14,8 +14,8 @@ def train_snapshot_baseline(X_train_snap, y_train_snap):
 
 def train_cycle_only_baseline(cycle_train, y_train_snap):
     """Trivial single-feature baseline: RUL regressed on elapsed cycle count
-    alone, no sensor data at all. Mirrors the old project's single-feature
-    (RPM-only) baseline that confirmed no individual feature is sufficient."""
+    alone, no sensor data at all — checks whether a naive "engines degrade
+    linearly with time" heuristic is sufficient by itself."""
     reg = LinearRegression()
     reg.fit(cycle_train, y_train_snap)
     return reg
