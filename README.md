@@ -1,27 +1,31 @@
-# Engine Condition Prediction from Sensor Data — Exam 3 Own ML Project
+# Turbofan Engine RUL Prediction — Exam 3 Own ML Project
 
-Binary classification of engine condition (healthy/faulty) from six live engine
-sensor readings (RPM, lubricating oil pressure, fuel pressure, coolant
-pressure, lubricating oil temperature, coolant temperature). A from-scratch
-MLP is compared against logistic regression baselines, with a Gaussian-noise
-augmentation ablation and permutation-importance interpretation.
+Regression: predict Remaining Useful Life (RUL, in cycles) for NASA C-MAPSS
+turbofan engines (subset FD001 — single operating condition, single fault
+mode) from a windowed sequence of 15 sensor readings. An LSTM (which sees a
+30-cycle window of sensor history) is compared against linear regression
+baselines (which see only the current cycle), with a window-length ablation
+and permutation-importance interpretation.
 
 ## Project structure
 
 ```
 .
 ├── data/
-│   └── engine_data.csv            # committed — no download needed
+│   └── CMaps/
+│       ├── train_FD001.txt        # committed — no download needed
+│       ├── test_FD001.txt
+│       └── RUL_FD001.txt          # ground-truth test RUL, one value per unit
 ├── notebooks/
 │   └── main_analysis.ipynb        # main deliverable — run this top to bottom
 ├── src/
-│   ├── preprocess.py              # load/split/scale, class-weight, augmentation
-│   ├── baselines.py               # logistic regression baselines
-│   ├── model.py                   # EngineConditionMLP architecture
+│   ├── preprocess.py              # load, RUL capping, unit-level split, scaling, windowing
+│   ├── baselines.py               # linear regression baselines (snapshot / cycle-only)
+│   ├── model.py                   # TurbofanRULLSTM architecture
 │   ├── train.py                   # training loop, early stopping
-│   └── evaluate.py                # metrics, plots, permutation importance
+│   └── evaluate.py                # RMSE/MAE/PHM08 score, plots, permutation importance
 ├── outputs/
-│   ├── figures/                   # confusion matrices, ROC curves, importance plot
+│   ├── figures/                   # pred-vs-actual, training curves, RUL-band error, trajectories
 │   └── metrics.json               # metrics used by the report
 ├── report/
 │   └── exam3_report.pdf           # the written report
@@ -37,19 +41,26 @@ source venv/bin/activate      # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
 ```
 
+No new dependencies were needed for the LSTM — PyTorch was already pinned in
+`requirements.txt`.
+
 ## Running
 
-The dataset is already committed under `data/`, so no download step is
+The dataset is already committed under `data/CMaps/`, so no download step is
 needed.
 
 ```bash
 jupyter notebook notebooks/main_analysis.ipynb
 ```
 
-Run top to bottom. It loads the data, builds the 70/15/15 stratified split,
-trains the logistic regression baselines and the MLP (with and without
-augmentation), and reproduces every table/figure used in the report,
-saving figures to `outputs/figures/` and printing the comparison metrics.
+Run top to bottom. It audits the raw data, builds the unit-level 80/20
+train/val split and 30-cycle sliding windows, trains the linear baselines
+and the LSTM (plus a window=15 ablation), and reproduces every table/figure
+used in the report, saving figures to `outputs/figures/` and printing the
+comparison metrics.
+
+Equivalently, from `src/`: `python evaluate.py` regenerates everything
+(`outputs/metrics.json` and all figures) without opening the notebook.
 
 ## Report
 

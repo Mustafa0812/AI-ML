@@ -1,21 +1,21 @@
-"""Logistic regression baselines. See PROJECT_PLAN.md §4."""
-from sklearn.linear_model import LogisticRegression
-
-SEED = 42
+"""Linear regression baselines for RUL prediction."""
+from sklearn.linear_model import LinearRegression
 
 
-def train_full_baseline(X_train, y_train, seed=SEED):
-    """Logistic regression on all 6 scaled features, class-weighted."""
-    clf = LogisticRegression(class_weight="balanced", random_state=seed)
-    clf.fit(X_train, y_train)
-    return clf
+def train_snapshot_baseline(X_train_snap, y_train_snap):
+    """Linear regression on the current-cycle sensor snapshot only (no
+    history) — same scaled 15-feature space the LSTM sees, but with zero
+    access to the preceding cycles. The head-to-head contrast against the
+    LSTM isolates the value of temporal context."""
+    reg = LinearRegression()
+    reg.fit(X_train_snap, y_train_snap)
+    return reg
 
 
-def train_rpm_only_baseline(X_train, y_train, rpm_col_idx=0, seed=SEED):
-    """Single-feature logistic regression on Engine rpm only.
-
-    Mirrors PROJECT_PLAN.md's "no single feature comes close to sufficient" check.
-    """
-    clf = LogisticRegression(class_weight="balanced", random_state=seed)
-    clf.fit(X_train[:, [rpm_col_idx]], y_train)
-    return clf
+def train_cycle_only_baseline(cycle_train, y_train_snap):
+    """Trivial single-feature baseline: RUL regressed on elapsed cycle count
+    alone, no sensor data at all. Mirrors the old project's single-feature
+    (RPM-only) baseline that confirmed no individual feature is sufficient."""
+    reg = LinearRegression()
+    reg.fit(cycle_train, y_train_snap)
+    return reg

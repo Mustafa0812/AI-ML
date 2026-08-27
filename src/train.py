@@ -1,4 +1,4 @@
-"""Training loop for EngineConditionMLP. See PROJECT_PLAN.md §5.4-5.8."""
+"""Training loop for TurbofanRULLSTM."""
 import copy
 
 import torch
@@ -24,25 +24,23 @@ def train_model(
     y_train,
     X_val,
     y_val,
-    pos_weight,
-    use_augmentation=False,
-    jitter_sigma=0.05,
-    batch_size=32,
+    input_dim=15,
+    batch_size=64,
     lr=1e-3,
     weight_decay=1e-4,
     max_epochs=200,
     patience=15,
     seed=SEED,
 ):
-    """Mini-batch training with Adam, BCEWithLogitsLoss(pos_weight), early stopping on val loss."""
+    """Mini-batch training with Adam, MSELoss, early stopping on val loss."""
     torch.manual_seed(seed)
-    model = build_model(seed=seed)
+    model = build_model(seed=seed, input_dim=input_dim)
 
     train_loader = _make_loader(X_train, y_train, batch_size, shuffle=True, seed=seed)
     X_val_t = torch.tensor(X_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.float32)
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     best_val_loss = float("inf")
@@ -55,11 +53,9 @@ def train_model(
         epoch_loss = 0.0
         n_batches = 0
         for xb, yb in train_loader:
-            if use_augmentation:
-                xb = xb + torch.randn_like(xb) * jitter_sigma
             optimizer.zero_grad()
-            logits = model(xb)
-            loss = criterion(logits, yb)
+            preds = model(xb)
+            loss = criterion(preds, yb)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -68,8 +64,8 @@ def train_model(
 
         model.eval()
         with torch.no_grad():
-            val_logits = model(X_val_t)
-            val_loss = criterion(val_logits, y_val_t).item()
+            val_preds = model(X_val_t)
+            val_loss = criterion(val_preds, y_val_t).item()
 
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
@@ -92,7 +88,8 @@ if __name__ == "__main__":
 
     data = prepare_data()
     model, history = train_model(
-        data["X_train"], data["y_train"], data["X_val"], data["y_val"], data["pos_weight"]
+        data["X_train_seq"], data["y_train_seq"], data["X_val_seq"], data["y_val_seq"],
+        input_dim=len(data["feature_cols"]),
     )
     print(f"Trained for {len(history['train_loss'])} epochs")
-    print(f"Final val loss: {history['val_loss'][-1]:.4f}")
+    print(f"Final val loss (MSE): {history['val_loss'][-1]:.4f}")

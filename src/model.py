@@ -1,43 +1,39 @@
-"""MLP classifier for engine condition prediction. See PROJECT_PLAN.md §5.1-5.3."""
+"""LSTM regressor for turbofan Remaining Useful Life (RUL) prediction."""
 import torch
 import torch.nn as nn
 
 SEED = 42
 
 
-class EngineConditionMLP(nn.Module):
-    """6 -> 32 -> 16 -> 8 -> 1, BatchNorm+ReLU+Dropout, raw logit output.
+class TurbofanRULLSTM(nn.Module):
+    """Sequence(30, 15) -> LSTM(hidden=64) -> FC head -> scalar RUL.
 
-    Sigmoid is applied inside BCEWithLogitsLoss during training (see train.py)
-    and explicitly via torch.sigmoid() at inference time.
+    No BatchNorm: normalizing across a recurrent hidden state mixes
+    per-timestep statistics in ways that are inappropriate for sequence
+    models (LayerNorm would be the correct alternative if normalization
+    were needed). At this size, dropout + weight decay + early stopping
+    are sufficient regularization.
     """
 
-    def __init__(self, input_dim=6, dropout1=0.3, dropout2=0.2):
+    def __init__(self, input_dim=15, hidden_size=64, dropout1=0.3, dropout2=0.2):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 32),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
+        self.lstm = nn.LSTM(input_dim, hidden_size, num_layers=1, batch_first=True)
+        self.head = nn.Sequential(
             nn.Dropout(dropout1),
-
-            nn.Linear(32, 16),
-            nn.BatchNorm1d(16),
+            nn.Linear(hidden_size, 32),
             nn.ReLU(),
             nn.Dropout(dropout2),
-
-            nn.Linear(16, 8),
-            nn.ReLU(),
-
-            nn.Linear(8, 1),
+            nn.Linear(32, 1),
         )
 
     def forward(self, x):
-        return self.net(x).squeeze(-1)
+        _, (h_n, _) = self.lstm(x)
+        return self.head(h_n[-1]).squeeze(-1)
 
 
-def build_model(seed=SEED):
+def build_model(seed=SEED, input_dim=15):
     torch.manual_seed(seed)
-    return EngineConditionMLP()
+    return TurbofanRULLSTM(input_dim=input_dim)
 
 
 if __name__ == "__main__":
