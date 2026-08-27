@@ -1,4 +1,4 @@
-# Turbofan Engine RUL Prediction — Exam 3 Own ML Project
+# Turbofan Engine RUL Prediction
 
 Regression: predict Remaining Useful Life (RUL, in cycles) for NASA C-MAPSS
 turbofan engines (subset FD001 — single operating condition, single fault
@@ -28,7 +28,7 @@ and permutation-importance interpretation.
 │   ├── figures/                   # pred-vs-actual, training curves, RUL-band error, trajectories
 │   └── metrics.json               # metrics used by the report
 ├── report/
-│   └── exam3_report.pdf           # the written report
+│   └── report.pdf                 # theoretical answers + full project write-up
 ├── exam_3_own_project.pdf         # assignment brief
 └── requirements.txt
 ```
@@ -64,6 +64,8 @@ Equivalently, from `src/`: `python evaluate.py` regenerates everything
 
 ## Report
 
-The full write-up (problem relevance, data audit, model/architecture
-justification, baseline comparison, evaluation, interpretation, and
-conclusion) is in [`report/exam3_report.pdf`](report/exam3_report.pdf).
+[`report/report.pdf`](report/report.pdf) contains the theoretical question
+answers (model-family comparison; gradient descent) followed by the full
+project write-up: problem relevance, data audit, model/architecture
+justification, baseline comparison, evaluation, interpretation, limitations,
+and conclusion.
